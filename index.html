@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
-<meta name="ledger-build" content="20261117012436-88e6b4b6">
+<meta name="ledger-build" content="20261117015637-bcefb82f">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>효정한솔 결산</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -537,6 +537,15 @@ function autoIdx(){
   AUTO={by:by,list:list,gone:gone,bad:bad,fb:fb};return AUTO;
 }
 function autoOf(ym,cid){var b=autoIdx().by[ym];return (b&&b[cid])||[];}
+/* 캡처·직접 넣은 내역 중 이용일이 있는 것. 카드 알림 탭에서 알림 내역과 함께 보여 준다(합산은 월 결산이 원래 하던 그대로). */
+function manualCards(ym){
+  var m=S.months[ym],out=[];if(!m||!m.items)return out;
+  Object.keys(m.items).forEach(function(cid){(Array.isArray(m.items[cid])?m.items[cid]:[]).forEach(function(x,i){
+    if(!x||!x.d||typeof x.a!=='number')return;
+    out.push({a:x.a,m:x.m||'',d:x.d,t:x.t||'',s:x.s||'',who:x.w||'',cid:cid,i:i,manual:true,cancel:x.a<0});});});
+  return out;
+}
+function manualSel(it,ym){return '<select aria-label="카테고리" data-ch="mitem-cat" data-ym="'+ym+'" data-cat="'+esc(it.cid)+'" data-i="'+it.i+'" data-a="'+it.a+'" data-d="'+esc(it.d)+'"'+dis()+'>'+catOptions(it.cid).replace(/<option value="__x"[^>]*>[^<]*<\/option>$/,'')+'</select>';}
 function catOptions(sel,off){
   var h='';groups().forEach(function(g){var cs=catsOf(g.id);if(!cs.length)return;h+='<optgroup label="'+esc(g.name)+'">';
     cs.forEach(function(c){h+='<option value="'+esc(c.id)+'"'+(!off&&c.id===sel?' selected':'')+'>'+esc(c.name)+'</option>';});h+='</optgroup>';});
@@ -951,7 +960,7 @@ function settleYear(y){
 /* ---------- 화면: 카드 알림 ---------- */
 function viewCards(){
   if(S.cap)return viewCap();
-  var ix=autoIdx(),ym=S.ym.cards,list=(ix.list[ym]||[]).slice().sort(function(a,b){return a.d<b.d?1:a.d>b.d?-1:a.t<b.t?1:a.t>b.t?-1:0;});
+  var ix=autoIdx(),ym=S.ym.cards,list=(ix.list[ym]||[]).concat(manualCards(ym)).sort(function(a,b){return a.d<b.d?1:a.d>b.d?-1:a.t<b.t?1:a.t>b.t?-1:0;});
   var pay=0,pn=0,can=0,cn=0,un=0;
   list.forEach(function(it){if(it.x)return;if(it.cancel){can+=-it.a;cn++;}else{pay+=it.a;pn++;}if(it.cid===ix.fb)un++;});
   /* 사람별: 알림을 보낸 폰(기기 이름) 기준 */
@@ -966,9 +975,13 @@ function viewCards(){
     '<div class="tile"><div class="lab">미분류</div><div class="val num">'+un+'<small>건</small></div><div class="sub">카테고리를 고르면 같은 가맹점은 다음부터 자동</div></div></section>';
   if(whos.length)h+='<div class="toolbar" role="group" aria-label="사람별 합계"><button class="chip" data-act="card-who" aria-pressed="'+(S.cardWho==null)+'">전체 '+signed(pay-can)+'원</button>'+
     whos.map(function(w){return '<button class="chip" data-act="card-who" data-w="'+esc(w)+'" aria-pressed="'+(S.cardWho===w)+'">'+esc(w||'이름 없음')+' '+signed(whoSum[w])+'원 · '+whoN[w]+'건</button>';}).join('')+'</div>';
-  h+='<section class="card"><header><h3>'+ymLabel(ym)+' 이용분</h3><span class="small muted">폰 결제 알림에서 자동으로 들어온 내역</span><span class="sum num">'+shown.length+'건</span></header>';
+  h+='<section class="card"><header><h3>'+ymLabel(ym)+' 이용분</h3><span class="small muted">결제 알림과 캡처·직접 넣은 이용 내역</span><span class="sum num">'+shown.length+'건</span></header>';
   if(!list.length)h+='<div class="pad muted">'+((S.notis||[]).length?'이 달에 이용한 알림 내역이 없어요.':'아직 수집된 카드 알림이 없어요.')+'</div>';
   shown.forEach(function(it){
+    if(it.manual){var mk='mi:'+it.cid+':'+it.i,ma=' data-ym="'+ym+'" data-cat="'+esc(it.cid)+'" data-i="'+it.i+'" data-a="'+it.a+'" data-d="'+esc(it.d)+'"';
+      h+='<div class="nrow"><span class="dt num">'+esc(whenText({d:it.d},ym).replace(' 이용','')+(it.t?' '+it.t:''))+'</span>'+
+        '<span class="nm">'+esc(it.m||'이름 없음')+'<span class="tag">추가</span><small>'+esc([it.who,it.s].filter(Boolean).join(' · '))+'</small></span>'+
+        '<span class="sel">'+manualSel(it,ym)+(S.canWrite?'<button class="x" data-act="mitem-del"'+ma+'>'+(S.confirmDel===mk?'정말 삭제':'삭제')+'</button>':'')+'</span><span class="amt num'+(it.a<0?' neg':'')+'">'+signed(it.a)+'</span></div>';return;}
     h+='<div class="nrow'+(it.x?' off':'')+'"><span class="dt num">'+esc(whenText({d:it.d},ym).replace(' 이용','')+' '+it.t)+'</span>'+
       '<span class="nm">'+esc(it.m)+(it.cancel?'<span class="tag">결제취소</span>':'')+(it.edited?'<span class="tag">수정됨</span>':'')+'<small>'+esc(it.who+' · '+it.s)+'</small></span>'+
       '<span class="sel">'+notiSel(it)+notiEditBtn(it)+'</span><span class="amt num'+(it.cancel&&!it.x?' neg':'')+'">'+signed(it.a)+'</span></div>'+(S.editNoti===it.nid?notiEditor(it):'');});
@@ -1214,13 +1227,15 @@ function cfgPatch(kind,id,patch){var o={};o[kind]={};o[kind][id]=patch;return o;
 
 view.addEventListener('click',function(ev){
   var b=ev.target.closest('[data-act]');if(!b||b.disabled)return;var a=b.dataset.act,d=b.dataset;
-  if(a!=='cat-del'&&a!=='acct-del'&&a!=='disconnect')S.confirmDel=null;
+  if(a!=='cat-del'&&a!=='acct-del'&&a!=='disconnect'&&a!=='mitem-del')S.confirmDel=null;
   if(a==='ym'){S.ym[d.k]=addYm(S.ym[d.k],+d.d);S.openCat=null;S.editPlan=null;S.editNoti=null;}
   else if(a==='goym'){S.ym[d.k]=d.ym;if(d.mode){S.mode=d.mode;saveUi();}S.openCat=d.open||null;S.editPlan=null;S.editNoti=null;window.scrollTo(0,0);}
   else if(a==='noti-edit'){S.editNoti=S.editNoti===d.id?null:d.id;if(S.editNoti)S.focusNext='ne-a';}
   else if(a==='noti-reset'||a==='noti-del'||a==='noti-undel'){var np={m:{}};np.m[d.id]=a==='noti-reset'?{a:null,n:null}:{del:a==='noti-del'};saveDoc('notimap/'+d.um,np);S.editNoti=null;}
   else if(a==='mode'){S.mode=d.m;saveUi();}
   else if(a==='cat'){S.openCat=S.openCat===d.cat?null:d.cat;if(S.openCat&&S.canWrite)S.focusNext='add-a-'+d.cat;}
+  else if(a==='mitem-del'){var mk='mi:'+d.cat+':'+d.i;if(S.confirmDel!==mk){S.confirmDel=mk;}else{S.confirmDel=null;var ml=itemsOf(d.ym,d.cat).slice(),mx=ml[+d.i];
+    if(!mx||mx.a!==+d.a||mx.d!==d.d){toast('내역이 바뀌었어요. 다시 눌러 주세요.');}else{ml.splice(+d.i,1);saveItems(d.ym,d.cat,ml);}}}
   else if(a==='item-del'){var arr=itemsOf(S.ym.settle,d.cat).slice();arr.splice(+d.i,1);saveItems(S.ym.settle,d.cat,arr);}
   else if(a==='copy-assets'){var src=S.assets[d.from];if(src&&src.v)saveDoc('assets/'+S.ym.assets,{v:JSON.parse(JSON.stringify(src.v))});}
   else if(a==='plan-done'){var it=findPlan(d.key);if(it){var nd=!it.done;savePlan(S.ym.plan,it,nd?{done:true,act:it.act==null?it.exp:it.act}:{done:false});}}
@@ -1313,6 +1328,10 @@ view.addEventListener('change',function(ev){
   else if(k==='fixed-a'){var fv=parseAmounts(t.value);if(!fv||fv.length!==1||!(fv[0]>0)){toast('금액은 0보다 큰 숫자 하나로 적어 주세요.');return;}
     saveDoc('config/fixed',cfgPatch('items',d.id,{a:fv[0]}));}
   else if(k==='rule-cat'){var rp={};rp[d.t]={};rp[d.t][d.key]=t.value;saveDoc('config/rules',rp);}
+  else if(k==='mitem-cat'){var mf=itemsOf(d.ym,d.cat).slice(),mi=mf[+d.i];
+    if(!mi||mi.a!==+d.a||mi.d!==d.d){toast('내역이 바뀌었어요. 다시 골라 주세요.');schedule();return;}
+    if(t.value!==d.cat){mf.splice(+d.i,1);var mo={};mo[d.cat]=mf;mo[t.value]=itemsOf(d.ym,t.value).concat([mi]);saveDoc('months/'+d.ym,{items:mo});
+      var mn=String(mi.m||'').replace(/ \(할부 \d+\/\d+\)$/,'');if(mn){var mr={m:{}};mr.m[mn]=t.value;saveDoc('config/rules',mr);}}}
   else if(k==='noti-cat'){var no={m:{}};no.m[d.id]=t.value==='__x'?{x:true}:{c:t.value,x:false};saveDoc('notimap/'+d.um,no);
     if(t.value!=='__x'&&d.mk){var nr={m:{}};nr.m[d.mk]=t.value;saveDoc('config/rules',nr);}}
   else if(k==='asset'){var v=parseMan(t.value);if(isNaN(v)){toast('금액을 숫자로 적어 주세요. 단위는 만원.');return;}
