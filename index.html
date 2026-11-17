@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
-<meta name="ledger-build" content="20261117015637-bcefb82f">
+<meta name="ledger-build" content="20261117020351-02f65321">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>효정한솔 결산</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -273,7 +273,7 @@ table.year td.zero{color:var(--muted)}
 <div class="top">
   <div class="top-in">
     <h1 class="brand">효정한솔 결산</h1>
-    <span class="conn" id="conn"><i></i><span id="connText">불러오는 중</span></span>
+    <span class="conn" id="conn"><i></i><span id="connText">불러오는 중</span><button class="chip" type="button" id="refresh" hidden>새로고침</button></span>
     <nav class="tabs" aria-label="화면">
       <a href="#settle" data-tab="settle">월 결산</a>
       <a href="#cards" data-tab="cards">카드 알림</a>
@@ -1198,6 +1198,7 @@ function render(){
   var c=document.getElementById('conn'),ct=document.getElementById('connText');
   c.className='conn'+(S.conn==='live'?' live':'');
   ct.textContent=S.conn==='live'?(S.canWrite?'실시간 저장 중':'보기 전용'):S.conn==='setup'?'연결 필요':S.conn==='nodb'?'연결 안 됨':S.conn==='slow'?'연결 지연':'불러오는 중';
+  var rf=document.getElementById('refresh');if(rf)rf.hidden=!(window.SheetBackend&&S.db);
   var ae=document.activeElement,keep=null;
   if(ae&&ae.id&&view.contains(ae))keep={id:ae.id,val:ae.value,dirty:ae.tagName==='INPUT'&&ae.type!=='checkbox'&&ae.value!==ae.defaultValue,s:ae.selectionStart,e:ae.selectionEnd};
   var h='';
@@ -1406,6 +1407,15 @@ function pageCheck(){
     localStorage.setItem('ledger-page',t);return 'new';
   });
 }
+/* 새로고침: 시트의 결산 데이터와 알림을 지금 전부 다시 불러온다(평소에는 20초마다 바뀐 것만 받아 온다). */
+(function(){
+  var rf=document.getElementById('refresh');if(!rf||!window.SheetBackend)return;
+  rf.addEventListener('click',function(){
+    if(rf.disabled)return;rf.disabled=true;rf.textContent='불러오는 중…';
+    var done=function(){rf.disabled=false;rf.textContent='새로고침';toast(S.conn==='live'?'최신 내용으로 불러왔어요.':'불러오지 못했어요. 인터넷 연결을 확인해 주세요.');};
+    window.SheetBackend.resync().then(done,done);
+  });
+})();
 route();
 boot(10);
 if(window.PAGE_UPDATE_URL){
