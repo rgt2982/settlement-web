@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
-<meta name="ledger-build" content="20261119001628-d6436e3a">
+<meta name="ledger-build" content="20261119003534-5d9ee5bb">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>효정한솔 결산</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -490,6 +490,25 @@ function planItems(ym){
 /* 어느 달 결산에 넣을지 = 이용월 + n개월. 이용월(실제로 쓴 달) 기준이라 모두 0.
    결제월 기준으로 보려면 신용을 1로 바꾼다(하나카드는 전월 이용분을 다음 달 13일에 결제). */
 var CARD_RULES={'하나':{credit:0,check:0},_:{credit:0,check:0}};
+/* 기본 분류: 이름만 봐도 아는 가맹점. 직접 정한 규칙(가맹점 이름·키워드)이 항상 먼저이고, 여기는 그다음이다.
+   위에서부터 처음 맞는 것을 쓴다(자동차보험이 보험보다, 이마트24가 이마트보다 먼저). 그 카테고리가 없거나 보관돼 있으면 건너뛴다. */
+var BUILTIN_CATS=[
+  ['carins',/자동차보험|차보험/],['guarantee',/보증보험|주택도시보증/],['ins',/보험|생명|화재|손보/],
+  ['phone',/텔레콤|유플러스|U\+|LGU|SKT|엠모바일|헬로모바일|스카이라이프모바일|알뜰폰|통신요금/],
+  ['net',/브로드밴드|헬로비전|딜라이브|스카이라이프|인터넷요금/],
+  ['gas',/도시가스|삼천리|예스코|코원에너지|가스요금/],['elec',/한국전력|한전|전기요금/],['mgmt',/관리비|아파트아이/],['proptax',/재산세/],
+  ['transit',/티머니|후불교통|교통카드|캐시비|지하철/],['taxi',/택시|카카오T|쏘카|그린카|렌터카|렌트카/],
+  ['delivery',/배달의민족|우아한형제들|배민|요기요|쿠팡이츠/],
+  ['cvs',/GS25|지에스25|^CU|씨유|세븐일레븐|코리아세븐|이마트24|미니스톱|편의점/],
+  ['mart',/이마트|홈플러스|롯데마트|코스트코|트레이더스|하나로마트|킴스클럽/],
+  ['hosp',/병원|의원|약국|치과|클리닉/],['gym',/피트니스|필라테스|요가|헬스장|크로스핏|스포애니/],
+  ['donate',/유니세프|월드비전|굿네이버스|초록우산|세이브더칠드런|적십자|기부금/]
+];
+function builtinCat(name){
+  var cats=(S.cfg&&S.cfg.cats)||{},n=String(name||'').replace(/\s+/g,'').toUpperCase();if(!n)return null;
+  for(var i=0;i<BUILTIN_CATS.length;i++){var c=cats[BUILTIN_CATS[i][0]];if(c&&!c.archived&&BUILTIN_CATS[i][1].test(n))return BUILTIN_CATS[i][0];}
+  return null;
+}
 function cardOf(app){app=String(app||'');return /하나/.test(app)?'하나':/KB|국민/i.test(app)?'국민':app;}
 /* r=[알림시각(ms),기기,앱,제목,내용,id]. 하나카드 형식: 제목 "(결제) 6,900원" / "(결제취소) -6,900원", 내용 "가맹점 / 신용(일시불,2*3*) / 11.16 17:27 / 누적이용금액 …" */
 /* KB Pay 형식(제목은 "KB Pay"). 머리말이 승인과 취소에서 다르다:
@@ -528,7 +547,7 @@ function autoIdx(){
     var t=parseNoti(r);if(!t){if(looksLikeCard(r))bad.push(r);return;}
     if(!t.id||seen[t.id])return;seen[t.id]=1;
     var nm=S.nmap[t.um];var ov=(nm&&nm.m&&nm.m[t.id])||{};
-    var cid=ov.c||rules[t.m]||kwCat(t.m)||fb;if(!cats[cid])cid=fb;
+    var cid=ov.c||rules[t.m]||kwCat(t.m)||builtinCat(t.m)||fb;if(!cats[cid])cid=fb;
     var rule=CARD_RULES[t.card]||CARD_RULES._;var ym0=addYm(t.um,t.kind==='체크'?rule.check:rule.credit);
     /* 사용자가 고친 금액(a)·이름(n). 없으면 알림 내용 그대로. */
     var amt=typeof ov.a==='number'&&ov.a>0?ov.a:t.amt,name=typeof ov.n==='string'&&ov.n?ov.n:t.m,edited=amt!==t.amt||name!==t.m;
@@ -626,6 +645,7 @@ function setupRules(){
   var row=function(t,key,cid){return '<div class="r3"><span class="rn">'+esc(key)+'</span>'+catSelect('aria-label="카테고리" data-ch="rule-cat" data-t="'+t+'" data-key="'+esc(key)+'"',cid)+(S.canWrite?'<button class="x" data-act="rule-del" data-t="'+t+'" data-key="'+esc(key)+'">삭제</button>':'<span></span>')+'</div>';};
   var h='<section class="card"><header><h2>카드 알림 분류 규칙</h2><span class="small muted">'+(mk.length+kk.length)+'개</span>'+secBtn('rules')+'</header>';
   if(S.open.rules){
+    h+='<div class="pad small muted" style="padding-bottom:0">보험·통신·공과금·편의점·병원처럼 이름만 봐도 아는 곳은 규칙이 없어도 해당 카테고리로 들어가요. 여기서 정한 규칙이 항상 먼저예요.</div>';
     h+='<div class="ghead">가맹점 이름에 이 글자가 들어가면</div>';kk.forEach(function(k){h+=row('k',k,rk[k]);});
     if(!kk.length)h+='<div class="pad small muted">예: "GS25"를 편의점으로 정해 두면 지점이 달라도 자동으로 분류돼요.</div>';
     if(S.canWrite)h+='<form class="formgrid" data-form="rule-add"><label class="w-l">들어가는 글자<input id="ra-k" autocomplete="off" placeholder="예: GS25, 쿠팡이츠"></label><label>카테고리'+catSelect('id="ra-c"','')+'</label><button class="btn sm" type="submit">추가</button></form>';
@@ -752,6 +772,7 @@ function capCatFor(name,corp){
   /* 법인카드로 쓴 것은 가맹점과 상관없이 '회사' 카테고리가 있으면 거기로 */
   if(!c&&corp&&cats.work&&!cats.work.archived)c='work';
   if(!c)for(var i=0;i<kws.length;i++)if(name.indexOf(kws[i])>=0){c=rk[kws[i]];break;}
+  if(!c)c=builtinCat(name);
   if(!c||!cats[c])c=autoIdx().fb;
   return c;
 }
@@ -792,7 +813,7 @@ function capFile(file){
   rd.readAsDataURL(file);
 }
 function capSave(){
-  var c=S.cap,byYm={},n=0,bad=0;if(!c)return;
+  var c=S.cap,byYm={},n=0,bad=0,learn={},ln=0;if(!c)return;
   c.rows.forEach(function(r){
     if(!r.on)return;
     var a=parseAmounts(r.a);if(!a||a.length!==1||!(a[0]>0)||!/^\d{4}-\d{2}-\d{2}$/.test(r.d)||!r.m.trim()||!r.cid){bad++;return;}
@@ -802,11 +823,12 @@ function capSave(){
       if(r.t)it.t=r.t;if(c.card.trim())it.s=c.card.trim();if(c.who)it.w=c.who;
       var o=byYm[ym]||(byYm[ym]={});(o[r.cid]||(o[r.cid]=itemsOf(ym,r.cid).slice())).push(it);
     }
-    n++;
+    n++;if(r.picked&&!r.corp){learn[r.m.trim()]=r.cid;ln++;}
   });
   if(bad){toast('넣기로 한 줄 중 '+bad+'건은 날짜·이름·금액이 비어 있거나 잘못됐어요. 고치거나 체크를 풀어 주세요.');return;}
   if(!n){toast('넣을 줄을 하나 이상 골라 주세요.');return;}
   Object.keys(byYm).forEach(function(ym){saveDoc('months/'+ym,{items:byYm[ym]});});
+  if(ln)saveDoc('config/rules',{m:learn});
   try{localStorage.setItem('ledger-cap',JSON.stringify({who:c.who,card:c.card}));}catch(e){}
   toast(n+'건을 넣었어요.');S.cap=null;
 }
@@ -838,7 +860,7 @@ function capChange(k,t,d){
   var c=S.cap;if(!c)return;
   if(k==='cap-file'){capFile(t.files&&t.files[0]);return;}
   if(k==='cap-who')c.who=t.value;else if(k==='cap-card')c.card=t.value;
-  else{var r=c.rows[+d.i];if(!r)return;if(k==='cap-on')r.on=t.checked;else if(k==='cap-f')r[d.f]=t.value;}
+  else{var r=c.rows[+d.i];if(!r)return;if(k==='cap-on')r.on=t.checked;else if(k==='cap-f'){r[d.f]=t.value;if(d.f==='cid')r.picked=true;}}
   schedule();
 }
 
