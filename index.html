@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
-<meta name="ledger-build" content="20261117020351-02f65321">
+<meta name="ledger-build" content="20261119001628-d6436e3a">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>효정한솔 결산</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -297,6 +297,9 @@ var KEY='ledger-conn',CACHE='ledger-cache-v2',POLL=20000;
 var conn=null;try{conn=JSON.parse(localStorage.getItem(KEY)||'null');}catch(e){}
 var st={rev:null,dsince:0,docs:{},notis:[]};
 var haveCache=false,synced=false,pending=0,chain=Promise.resolve(),busy=null;
+/* needFull: 다음 확인 때 전부 다시 받는다. 받아 오는 도중에는 st(rev·dsince·notis)를 건드리지 않고 이 표시만 세운다. */
+/* 앱을 열 때 첫 확인은 항상 전부 받는다: 폰에 저장해 둔 사본은 화면을 바로 띄우는 데만 쓰고, 사본이 어긋나 있어도 여기서 바로잡힌다. */
+var needFull=true;
 var docL={},colL={},notiL=[],statusL=[];
 try{var c=JSON.parse(localStorage.getItem(CACHE)||'null');if(c&&c.docs&&conn&&c.url===conn.url){st=c;haveCache=true;}}catch(e){}
 
@@ -330,24 +333,29 @@ function post(body,cfg){
     return j;
   },function(e){throw (e&&e.code)?e:{code:'unavailable'};});
 }
-function applySync(j){
+/* full: 이 답을 받은 요청이 '전부'를 물었는지. 답에 없는 문서를 지워도 되는 것은 그때뿐이다(바뀐 것만 물은 답에는 원래 일부만 들어 있다). */
+function applySync(j,full){
   var first=!synced;synced=true;
   if(j.same){if(first)emitAll();return;}
   var changed=[];
-  if(!st.dsince){Object.keys(st.docs).forEach(function(p){if(!j.docs[p]){delete st.docs[p];changed.push(p);}});}
+  if(full){Object.keys(st.docs).forEach(function(p){if(!j.docs[p]){delete st.docs[p];changed.push(p);}});}
   Object.keys(j.docs||{}).forEach(function(p){var o=st.docs[p];if(!o||o.v!==j.docs[p].v||JSON.stringify(o.data)!==JSON.stringify(j.docs[p].data)){st.docs[p]=j.docs[p];changed.push(p);}});
   var nchanged=false;
   if(j.nfrom===0&&(st.notis.length||j.notis.length)){nchanged=st.notis.length!==j.notis.length||j.notis.length>0;st.notis=j.notis;}
-  else if(j.notis&&j.notis.length){st.notis=st.notis.slice(0,j.nfrom).concat(j.notis);nchanged=true;}
+  else if(j.nfrom!==st.notis.length){needFull=true;} /* 가진 줄 수와 답이 이어지지 않으면 붙이지 않고 전부 다시 받는다 */
+  else if(j.notis&&j.notis.length){st.notis=st.notis.concat(j.notis);nchanged=true;}
   st.rev=j.rev;st.dsince=j.now||0;save();
   if(first)emitAll();else{emit(changed);if(nchanged)notiL.forEach(function(f){f(st.notis);});}
 }
 function sync(){
   if(!conn||pending)return Promise.resolve();
   if(busy)return busy;
-  busy=post({action:'sync',rev:st.rev,dsince:st.dsince,nfrom:st.notis.length}).then(function(j){
-    busy=null;if(pending)return;applySync(j);status(true);
-  },function(e){busy=null;status(false,e);});
+  var full=needFull||st.rev==null||!st.dsince;needFull=false;
+  busy=post(full?{action:'sync',rev:null,dsince:0,nfrom:0}:{action:'sync',rev:st.rev,dsince:st.dsince,nfrom:st.notis.length}).then(function(j){
+    busy=null;if(pending){if(full)needFull=true;return;}
+    applySync(j,full);status(true);
+    if(needFull)return sync(); /* 받아 오는 동안 '전부 다시'가 요청됐으면 이어서 받는다 */
+  },function(e){busy=null;if(full)needFull=true;status(false,e);});
   return busy;
 }
 function write(path,patch){
@@ -359,7 +367,7 @@ function write(path,patch){
   return p.then(function(){
     pending--;save();if(!pending)sync();
   },function(e){
-    pending--;st.rev=null;st.dsince=0;if(!pending)sync();throw e;
+    pending--;needFull=true;if(!pending)sync();throw e;
   });
 }
 function doc(path){return {id:path.split('/').pop(),path:path,
@@ -385,7 +393,7 @@ window.SheetBackend={
     });
   },
   disconnect:function(){try{localStorage.removeItem(KEY);localStorage.removeItem(CACHE);}catch(e){}},
-  resync:function(){st.rev=null;st.dsince=0;st.notis=[];return sync();},
+  resync:function(){needFull=true;return sync();},
   refresh:sync
 };
 window.claude={use:function(n){return Promise.resolve(n==='db'?(window.SheetBackend.configured()?db:null):n==='user'?{can:function(){return Promise.resolve(true);}}:null);}};
@@ -1264,6 +1272,10 @@ view.addEventListener('click',function(ev){
   else if(a==='page-check'){pageCheck().then(function(r){if(r==='new')location.reload();else toast('이미 최신 화면이에요.');},function(){toast('확인하지 못했어요. 인터넷 연결을 확인해 주세요.');});}
   else if(a==='resync'){if(window.SheetBackend)window.SheetBackend.resync().then(function(){toast('다시 불러왔어요.');});}
   else if(a==='disconnect'){if(S.confirmDel==='conn'){window.SheetBackend.disconnect();location.reload();return;}else S.confirmDel='conn';}
+  else if(a==='init'&&window.SheetBackend&&!S.initSure){
+    /* 폰에 설정이 안 보인다고 해서 시트에도 없는 것은 아니다. 먼저 전부 다시 받아 보고, 정말 없을 때만 다음 누름에서 만든다. */
+    b.disabled=true;window.SheetBackend.resync().then(function(){var live=S.conn==='live';S.initSure=live&&!S.exists['config/main'];
+      toast(!live?'불러오지 못했어요. 인터넷 연결을 확인해 주세요.':S.initSure?'시트에 저장된 카테고리가 없어요. 한 번 더 누르면 기본 카테고리로 시작해요.':'저장된 카테고리를 다시 불러왔어요.');schedule();});return;}
   else if(a==='init'){var cats={};[['loan','주담대 이자 및 월세','fixed'],['ins','보험','fixed'],['transit','교통','fixed'],['phone','핸드폰','fixed'],['net','인터넷','fixed'],['mgmt','관리비','util'],['gas','공과금-가스','util'],['elec','공과금-전기','util'],['mart','식비-마트','food'],['eatout','외식','food'],['delivery','배달','food'],['goods','생활용품','life'],['hosp','병원','life'],['events','경조사','life'],['hs','한솔','hs'],['hj','효정','hj'],['move','이사','etc']].forEach(function(x,i){cats[x[0]]={name:x[1],group:x[2],living:['food','life','hs','hj'].indexOf(x[2])>=0,order:i};});
     saveDoc('config/main',{people:{hj:'효정',hs:'한솔'},groups:DEFAULT_GROUPS,cats:cats});}
   schedule();
